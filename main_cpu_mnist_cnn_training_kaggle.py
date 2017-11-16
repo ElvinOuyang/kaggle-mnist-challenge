@@ -20,7 +20,6 @@ output_file = 'submission.csv'
 
 # set random seed
 torch.manual_seed(1122)
-torch.cuda.manual_seed(1122)
 
 # load data
 raw_data = np.loadtxt(train_file, skiprows=1, dtype='int', delimiter=',')
@@ -61,21 +60,33 @@ testloader = DataLoader(testset, batch_size=250, shuffle=False,
 class MLP(nn.Module):
     def __init__(self):
         super(MLP, self).__init__()
-        self.l1 = nn.Linear(1 * 28 * 28, 20)
-        self.t1 = nn.Tanh()
-        self.l2 = nn.Linear(20, 10)
+        self.conv1 = nn.Conv2d(1, 16, 3)
+        self.conv2 = nn.Conv2d(16, 16, 3)
+        self.conv3 = nn.Conv2d(16, 32, 3)
+        self.conv4 = nn.Conv2d(32, 32, 3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(32 * 4 * 4, 256)
+        self.fc2 = nn.Linear(256, 10)
+        self.drop = nn.Dropout2d(p=0.25)
+        self.t1 = nn.ReLU()
         self.t2 = nn.LogSoftmax()
 
     def forward(self, x):
-        x = x.view(-1, 1*28*28)
-        x = self.t1(self.l1(x))
-        x = self.t2(self.l2(x))
+        x = self.t1(self.conv1(x))
+        x = self.t1(self.conv2(x))
+        x = self.drop(self.pool(x))
+        x = self.t1(self.conv3(x))
+        x = self.t1(self.conv4(x))
+        x = self.drop(self.pool(x))
+        x = x.view(-1, 32 * 4 * 4)
+        x = self.t1(self.fc1(x))
+        x = self.t2(self.fc2(x))
         return x
 
 mlp = MLP()
-mlp.cuda()
 criterion = nn.NLLLoss()
-optimizer = optim.SGD(mlp.parameters(), lr=0.1, momentum=0.9)
+# optimizer = optim.SGD(mlp.parameters(), lr=0.1, momentum=0.9)
+optimizer = optim.Adam(mlp.parameters(), lr=1e-4)
 
 
 # define a training epoch function
@@ -84,7 +95,6 @@ def trainEpoch(dataloader, epoch):
     mlp.train()
     for i, data in enumerate(dataloader, 0):
         inputs, labels = data
-        inputs, labels = inputs.cuda(), labels.cuda()
         inputs, labels = Variable(inputs), Variable(labels)
         optimizer.zero_grad()
         outputs = mlp(inputs)
@@ -98,12 +108,11 @@ def validateModel(dataloader, epoch):
     test_loss = 0
     correct = 0
     for inputs, targets in dataloader:
-        inputs, targets = inputs.cuda(), targets.cuda()
         inputs, targets = Variable(inputs), Variable(targets)
         outputs = mlp(inputs)
         test_loss += F.nll_loss(outputs, targets, size_average=False).data[0]
         prd = outputs.topk(1)[1].data
-        correct += prd.eq(targets.data.view_as(prd)).cpu().sum()
+        correct += prd.eq(targets.data.view_as(prd)).sum()
     test_loss /= len(dataloader.dataset)
     test_acc = correct / len(dataloader.dataset)
     print('[Epoch %i] Accuracy: %.2f, Average Loss: %.2f' %
@@ -115,18 +124,17 @@ def testModel(dataloader):
     mlp.eval()
     pred = np.array([])
     for inputs, _ in dataloader:
-        inputs = inputs.cuda()
         inputs = Variable(inputs)
         outputs = mlp(inputs)
         pred = np.append(pred,
-                         outputs.topk(1)[1].data.view(1, -1).cpu().numpy())
+                         outputs.topk(1)[1].data.view(1, -1).numpy())
     return pred
 
 # run the training epoch 100 times and test the result
 
 epoch_loss = []
 epoch_acc = []
-for epoch in range(5000):
+for epoch in range(30):
     trainEpoch(trainloader, epoch)
     loss, acc = validateModel(valloader, epoch)
     epoch_loss.append(loss)
@@ -139,6 +147,7 @@ submission = pd.DataFrame()
 submission['ImageId'] = imageid
 submission['Label'] = pred
 submission.to_csv('submission.csv', index=False)
+
 
 epoch_performance = pd.DataFrame()
 epoch_performance['epoch_id'] = np.arange(len(epoch_loss)) + 1

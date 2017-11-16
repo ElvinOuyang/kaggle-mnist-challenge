@@ -61,21 +61,34 @@ testloader = DataLoader(testset, batch_size=250, shuffle=False,
 class MLP(nn.Module):
     def __init__(self):
         super(MLP, self).__init__()
-        self.l1 = nn.Linear(1 * 28 * 28, 20)
-        self.t1 = nn.Tanh()
-        self.l2 = nn.Linear(20, 10)
+        self.conv1 = nn.Conv2d(1, 16, 3)
+        self.conv2 = nn.Conv2d(16, 16, 3)
+        self.conv3 = nn.Conv2d(16, 32, 3)
+        self.conv4 = nn.Conv2d(32, 32, 3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(32 * 4 * 4, 256)
+        self.fc2 = nn.Linear(256, 10)
+        self.drop = nn.Dropout2d(p=0.25)
+        self.t1 = nn.ReLU()
         self.t2 = nn.LogSoftmax()
 
     def forward(self, x):
-        x = x.view(-1, 1*28*28)
-        x = self.t1(self.l1(x))
-        x = self.t2(self.l2(x))
+        x = self.t1(self.conv1(x))
+        x = self.t1(self.conv2(x))
+        x = self.drop(self.pool(x))
+        x = self.t1(self.conv3(x))
+        x = self.t1(self.conv4(x))
+        x = self.drop(self.pool(x))
+        x = x.view(-1, 32 * 4 * 4)
+        x = self.t1(self.fc1(x))
+        x = self.t2(self.fc2(x))
         return x
 
 mlp = MLP()
 mlp.cuda()
 criterion = nn.NLLLoss()
-optimizer = optim.SGD(mlp.parameters(), lr=0.1, momentum=0.9)
+# optimizer = optim.SGD(mlp.parameters(), lr=0.1, momentum=0.9)
+optimizer = optim.Adam(mlp.parameters(), lr=1e-4)
 
 
 # define a training epoch function
@@ -126,7 +139,7 @@ def testModel(dataloader):
 
 epoch_loss = []
 epoch_acc = []
-for epoch in range(5000):
+for epoch in range(30):
     trainEpoch(trainloader, epoch)
     loss, acc = validateModel(valloader, epoch)
     epoch_loss.append(loss)
@@ -139,6 +152,7 @@ submission = pd.DataFrame()
 submission['ImageId'] = imageid
 submission['Label'] = pred
 submission.to_csv('submission.csv', index=False)
+
 
 epoch_performance = pd.DataFrame()
 epoch_performance['epoch_id'] = np.arange(len(epoch_loss)) + 1
